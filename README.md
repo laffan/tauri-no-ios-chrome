@@ -13,6 +13,12 @@ on top of us — bar, divider, corner glyph, status indicator — is showing.
 > **Status:** scaffold + first-pass overrides committed. Nothing has
 > been validated on a real iPad yet — this is the starting point for
 > iteration. The README is the running log; expect it to change.
+>
+> **Icons:** `src-tauri/icons/` contains solid-black PNG placeholders
+> (Tauri's `generate_context!` macro fails the build if any referenced
+> icon is missing). Replace with real artwork when ready, or run
+> `npm run tauri -- icon path/to/source.png` to regenerate the full
+> set.
 
 ## Strategy, in one paragraph
 
