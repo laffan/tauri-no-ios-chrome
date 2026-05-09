@@ -1,8 +1,9 @@
 // NoChromeSceneConfigurator.swift
 //
 // Hides the iPadOS 26 system chrome (top menu bar + bottom-right resize
-// corner) from inside Tauri's app target without forking the generated
-// AppDelegate / SceneDelegate.
+// corner) plus the classic status bar (time/battery/wifi) from inside
+// Tauri's app target without forking the generated AppDelegate /
+// SceneDelegate.
 //
 // Swift forbids overriding `+load` and `+initialize`, so we can't auto-
 // register at runtime load time. Instead, `apply-ios-overrides.mjs` patches
@@ -11,6 +12,7 @@
 // to receive the very first `UIScene.willConnectNotification`.
 
 import UIKit
+import ObjectiveC
 
 @objc(NoChromeSceneConfigurator)
 public final class NoChromeSceneConfigurator: NSObject {
@@ -22,6 +24,13 @@ public final class NoChromeSceneConfigurator: NSObject {
         guard !didInstall else { return }
         didInstall = true
         NSLog("[NoChrome] install()")
+
+        // Swizzle UIViewController.prefersStatusBarHidden to always
+        // return true. Combined with UIViewControllerBasedStatusBarAppearance
+        // = YES in Info.plist, this hides the classic status bar
+        // regardless of which VC subclass Tauri's WebView host ends up
+        // being.
+        installStatusBarHider()
 
         let center = NotificationCenter.default
         center.addObserver(
@@ -90,5 +99,24 @@ public final class NoChromeSceneConfigurator: NSObject {
         guard scene.responds(to: setter) else { return false }
         scene.setValue(value, forKey: key)
         return true
+    }
+
+    /// Replaces the implementation of UIViewController.prefersStatusBarHidden
+    /// with a block that always returns true. Subclasses that DON'T override
+    /// the property fall through to UIViewController's IMP (now ours).
+    /// Subclasses that DO override it are unaffected, but that's fine —
+    /// nobody in the Tauri WebView path should be doing that, and if any
+    /// of them did, they could only have made the bar hidden, not visible.
+    private static func installStatusBarHider() {
+        let cls: AnyClass = UIViewController.self
+        let sel = #selector(getter: UIViewController.prefersStatusBarHidden)
+        guard let method = class_getInstanceMethod(cls, sel) else {
+            NSLog("[NoChrome] could not find UIViewController.prefersStatusBarHidden")
+            return
+        }
+        let block: @convention(block) (UIViewController) -> Bool = { _ in true }
+        let imp = imp_implementationWithBlock(block)
+        method_setImplementation(method, imp)
+        NSLog("[NoChrome] swizzled UIViewController.prefersStatusBarHidden -> true")
     }
 }

@@ -10,9 +10,17 @@ The app itself is a blank page that paints **black in dark mode** and
 That makes it easy to verify visually that nothing the OS is drawing
 on top of us — bar, divider, corner glyph, status indicator — is showing.
 
-> **Status:** scaffold + first-pass overrides committed. Nothing has
-> been validated on a real iPad yet — this is the starting point for
-> iteration. The README is the running log; expect it to change.
+> **Status:** builds and runs on a real iPad (iPad Pro 5G 12.9",
+> iPadOS 26). Status bar (time/battery/wifi) was still showing after
+> the first pass, so we now also swizzle
+> `UIViewController.prefersStatusBarHidden -> true` and flip
+> `UIViewControllerBasedStatusBarAppearance` to YES. Whether the new
+> iPadOS 26 menu bar / resize corner are gone is still pending real-
+> device confirmation; the speculative KVC pokes will print
+> `[NoChrome] set <key> = <value>` for each property that actually
+> exists on the SDK's `UIWindowScene`, viewable via the iPad's
+> Console app or `log stream --predicate 'eventMessage contains "[NoChrome]"'`
+> from a Mac. The README is the running log; expect it to change.
 >
 > **Icons:** `src-tauri/icons/` contains solid-black PNG placeholders
 > (Tauri's `generate_context!` macro fails the build if any referenced

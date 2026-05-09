@@ -30,11 +30,17 @@
     <key>UIApplicationSupportsMultipleScenes</key>
     <false/>
 
-    <!-- Status bar: hide for an edge-to-edge presentation. -->
+    <!-- Status bar: hide for an edge-to-edge presentation. We use
+         VC-based appearance + a swizzle of `prefersStatusBarHidden`
+         (in NoChromeSceneConfigurator.swift) instead of the
+         Info.plist-only path, because the latter wasn't taking effect
+         on iPadOS 26 in our testing. The legacy `UIStatusBarHidden`
+         key is kept as a fallback; it is ignored when VC-based
+         appearance is enabled, but harmless. -->
     <key>UIStatusBarHidden</key>
     <true/>
     <key>UIViewControllerBasedStatusBarAppearance</key>
-    <false/>
+    <true/>
 
     <!-- Lock supported orientations so the system can fully size the
          scene without prompting the user-resize affordance. -->
