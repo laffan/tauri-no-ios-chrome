@@ -67,24 +67,27 @@ for actual effect:
 2. **A Swift bridge** — `NoChromeSceneConfigurator.swift` — exposes a
    single `install()` static method. It registers
    `UIScene.willConnectNotification` / `didActivateNotification`
-   observers and, on every `UIWindowScene`, locks the geometry via
-   `UIWindowScene.GeometryPreferences.iOS()` and KVC-pokes every
-   plausible "hide-the-chrome" property (`isUserResizable`,
-   `prefersFullScreenContent`, `prefersMenuBarHidden`, …) under
+   observers, walks the resulting VC tree on each callback, and
+   force-overrides `prefersStatusBarHidden=true` plus
+   `childForStatusBarHidden=nil` on every distinct VC class
+   encountered. Also pokes a list of speculative `UIWindowScene`
+   properties (`isUserResizable`, `prefersFullScreenContent`, …) under
    `responds(to:)` guards so the file compiles against any SDK.
 
-`install()` is called from a single line we inject into Tauri's
-generated `AppDelegate.swift` (top of
-`application(_:didFinishLaunchingWithOptions:)`). We can't auto-
-register at load time because Swift forbids overriding `+load` /
-`+initialize`; the AppDelegate hook is the next earliest point that
-still beats the first scene connection. The injection is performed
-by `scripts/apply-ios-overrides.mjs` and is idempotent (guarded by
-`// BEGIN NoChrome` markers).
+3. **An Obj-C bootstrap** — `NoChromeBootstrap.m` — that has a
+   `+load` method which runs at dyld image-load time and calls
+   `NoChromeSceneConfigurator.install()`. We can't auto-register from
+   Swift (Apple forbids overriding `+load` / `+initialize` in Swift),
+   and we can't patch Tauri's `AppDelegate.swift` because Tauri 2.0
+   *doesn't generate one* — its app delegate is set up from Rust. The
+   `.m` file's `+load` is the one mechanism that runs early, reliably,
+   without cooperation from Tauri's launch code.
 
-The Info.plist additions get merged in by the same script.
-Everything is idempotent so re-running `tauri ios init` doesn't
-lose our work.
+The Info.plist additions get merged in by
+`scripts/apply-ios-overrides.mjs`. Both the `.swift` and `.m` files
+are dropped into `src-tauri/gen/apple/<product>_iOS/`, where Tauri's
+Xcode project's synchronized groups auto-include them. Everything is
+idempotent so re-running `tauri ios init` doesn't lose our work.
 
 ## Layout
 
@@ -100,6 +103,7 @@ lose our work.
     ├── tauri.conf.json
     ├── src/{main.rs, lib.rs}
     └── ios-overrides/
+        ├── NoChromeBootstrap.m               # +load -> install()
         ├── NoChromeSceneConfigurator.swift   # scene-lifecycle tweaks
         └── Info.additions.plist              # keys to merge
 ```

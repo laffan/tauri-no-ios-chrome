@@ -5,16 +5,14 @@
 // another `tauri ios init` re-installs the overrides cleanly.
 //
 //   1. Remove obsolete override files left by older versions of this repo.
-//   2. Copy each `*.swift` from ios-overrides/ into the iOS sources dir.
-//      Files dropped into that dir get picked up by Tauri's Xcode project
-//      automatically because the project uses Xcode 15+ synchronized
-//      groups.
-//   3. Patch the generated `AppDelegate.swift` to call
-//      `NoChromeSceneConfigurator.install()` at the top of
-//      `application(_:didFinishLaunchingWithOptions:)`. Swift forbids
-//      overriding `+load`, so we hook in via the AppDelegate instead.
-//   4. Merge every key in `Info.additions.plist` into the generated
+//   2. Copy each `*.swift` and `*.m` from ios-overrides/ into the iOS
+//      sources dir. Tauri's Xcode project uses synchronized groups so
+//      files dropped there get auto-included in the build.
+//   3. Merge every key in `Info.additions.plist` into the generated
 //      `Info.plist` via `plutil`.
+//
+// We do NOT patch AppDelegate.swift — Tauri 2.0 doesn't generate one.
+// Bootstrap happens via NoChromeBootstrap.m's +load instead.
 //
 // Run from the repo root:
 //     node scripts/apply-ios-overrides.mjs
@@ -23,10 +21,8 @@ import { execFileSync } from "node:child_process";
 import {
     copyFileSync,
     existsSync,
-    readFileSync,
     readdirSync,
     rmSync,
-    writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -64,58 +60,33 @@ for (const name of obsolete) {
     }
 }
 
-// 2. Copy current Swift overrides.
+// 2. Copy current source overrides (Swift + Obj-C).
+const sourceExts = [".swift", ".m", ".h"];
+let copiedAny = false;
 for (const entry of readdirSync(overridesDir)) {
-    if (!entry.endsWith(".swift")) continue;
+    const lower = entry.toLowerCase();
+    if (!sourceExts.some((ext) => lower.endsWith(ext))) continue;
     const src = join(overridesDir, entry);
     const dst = join(iosSourcesDir, entry);
     copyFileSync(src, dst);
     console.log(`[apply-ios-overrides] copied ${entry} -> ${dst}`);
+    copiedAny = true;
 }
-
-// 3. Patch AppDelegate.swift to call NoChromeSceneConfigurator.install().
-const appDelegate = join(iosSourcesDir, "AppDelegate.swift");
-if (!existsSync(appDelegate)) {
-    console.error(`[apply-ios-overrides] ${appDelegate} not found`);
+if (!copiedAny) {
+    console.error(
+        `[apply-ios-overrides] no source overrides found in ${overridesDir} — ` +
+        `expected at least one .swift or .m file. Refusing to silently no-op.`
+    );
     process.exit(1);
 }
 
-const PATCH_BEGIN = "// BEGIN NoChrome";
-const PATCH_END = "// END NoChrome";
-const PATCH_BODY = [
-    "        " + PATCH_BEGIN,
-    "        NoChromeSceneConfigurator.install()",
-    "        " + PATCH_END,
-].join("\n");
-
-let appDelegateSrc = readFileSync(appDelegate, "utf8");
-if (appDelegateSrc.includes(PATCH_BEGIN)) {
-    console.log("[apply-ios-overrides] AppDelegate.swift already patched, skipping");
-} else {
-    // Find the opening `{` of `application(_:didFinishLaunchingWithOptions:)`.
-    // Permissive regex: tolerate any whitespace / argument formatting.
-    const sigRe = /func\s+application\s*\([^{]*?didFinishLaunchingWithOptions[^{]*?\)\s*->\s*Bool\s*\{/s;
-    const m = appDelegateSrc.match(sigRe);
-    if (!m) {
-        console.error(
-            "[apply-ios-overrides] could not locate application(_:didFinishLaunchingWithOptions:) " +
-            `in ${appDelegate}. Patch manually: add NoChromeSceneConfigurator.install() ` +
-            "to the top of that method."
-        );
-        process.exit(1);
-    }
-    const insertAt = m.index + m[0].length;
-    appDelegateSrc =
-        appDelegateSrc.slice(0, insertAt) +
-        "\n" + PATCH_BODY +
-        appDelegateSrc.slice(insertAt);
-    writeFileSync(appDelegate, appDelegateSrc);
-    console.log(`[apply-ios-overrides] patched ${appDelegate}`);
-}
-
-// 4. Merge Info.plist additions via plutil JSON round-trip.
+// 3. Merge Info.plist additions via plutil JSON round-trip.
 const additionsPlist = join(overridesDir, "Info.additions.plist");
 const infoPlist = join(iosSourcesDir, "Info.plist");
+if (!existsSync(additionsPlist)) {
+    console.error(`[apply-ios-overrides] ${additionsPlist} not found`);
+    process.exit(1);
+}
 if (!existsSync(infoPlist)) {
     console.error(`[apply-ios-overrides] ${infoPlist} not found`);
     process.exit(1);
