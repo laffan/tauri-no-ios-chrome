@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Keys that need to be merged into the generated
+    `src-tauri/gen/apple/<product>_iOS/Info.plist` to suppress the iPadOS 26
+    system chrome. Each key is intentional; see README for rationale.
+
+    The companion script `scripts/apply-ios-overrides.mjs` performs the merge
+    so you don't have to hand-edit the generated plist after every
+    `tauri ios init`.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Opt the app into the iOS 18 / pre-Liquid-Glass design language.
+         iPadOS 26 documents this key as the toggle that keeps an app's
+         existing UIKit chrome (status bar, no resize corner, no top
+         menu bar) instead of the new windowing UI. This is the single
+         most likely lever; if it works the rest is belt-and-braces. -->
+    <key>UIDesignRequiresCompatibility</key>
+    <true/>
+
+    <!-- Force fullscreen on iPad. With this set, iPadOS will not give the
+         user the resize-corner affordance, because the window cannot be
+         resized. Has worked since iOS 9. -->
+    <key>UIRequiresFullScreen</key>
+    <true/>
+
+    <!-- Single-scene app: no multi-window UI surface for the OS to attach
+         the new menu bar / window controls to. -->
+    <key>UIApplicationSupportsMultipleScenes</key>
+    <false/>
+
+    <!-- Status bar: hide for an edge-to-edge presentation. -->
+    <key>UIStatusBarHidden</key>
+    <true/>
+    <key>UIViewControllerBasedStatusBarAppearance</key>
+    <false/>
+
+    <!-- Lock supported orientations so the system can fully size the
+         scene without prompting the user-resize affordance. -->
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+</dict>
+</plist>

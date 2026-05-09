@@ -1,0 +1,16 @@
+{
+  "name": "tauri-no-ios-chrome",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Bare-bones Tauri 2.0 app exploring how to hide the iPadOS 26 system menu bar and resize corner.",
+  "scripts": {
+    "tauri": "tauri",
+    "ios:init": "tauri ios init && node scripts/apply-ios-overrides.mjs",
+    "ios:overrides": "node scripts/apply-ios-overrides.mjs",
+    "ios:dev": "tauri ios dev",
+    "ios:build": "tauri ios build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.0.0"
+  }
+}
