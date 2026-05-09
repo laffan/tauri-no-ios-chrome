@@ -33,23 +33,27 @@ that exist:
    `UIDesignRequiresCompatibility = YES`, which keeps the app on the
    iOS 18 design language. We back it up with `UIRequiresFullScreen`
    and `UIApplicationSupportsMultipleScenes = NO`.
-2. **A Swift bridge** — `NoChromeSceneConfigurator.swift` — registered
-   in `+load` so it runs before any of Tauri's launch code. It listens
-   for `UIScene.willConnect` / `didActivate` notifications and, on each
-   connecting `UIWindowScene`, KVC-pokes every plausible
-   "hide-the-chrome" property (`isUserResizable`,
+2. **A Swift bridge** — `NoChromeSceneConfigurator.swift` — exposes a
+   single `install()` static method. It registers
+   `UIScene.willConnectNotification` / `didActivateNotification`
+   observers and, on every `UIWindowScene`, locks the geometry via
+   `UIWindowScene.GeometryPreferences.iOS()` and KVC-pokes every
+   plausible "hide-the-chrome" property (`isUserResizable`,
    `prefersFullScreenContent`, `prefersMenuBarHidden`, …) under
    `responds(to:)` guards so the file compiles against any SDK.
-3. **Menu swizzle** — `AppDelegate+NoChrome.swift` swizzles
-   `UIResponder.buildMenu(with:)` so every standard menu identifier
-   gets removed. If the new menu bar is content-driven, this collapses
-   it to nothing.
 
-We don't fork Tauri's generated `AppDelegate` / `SceneDelegate`. The
-overrides live next to them as additional Swift sources in the same
-target, plus the Info.plist additions get merged in by a small Node
-script. Everything is idempotent so re-running `tauri ios init`
-doesn't lose our work.
+`install()` is called from a single line we inject into Tauri's
+generated `AppDelegate.swift` (top of
+`application(_:didFinishLaunchingWithOptions:)`). We can't auto-
+register at load time because Swift forbids overriding `+load` /
+`+initialize`; the AppDelegate hook is the next earliest point that
+still beats the first scene connection. The injection is performed
+by `scripts/apply-ios-overrides.mjs` and is idempotent (guarded by
+`// BEGIN NoChrome` markers).
+
+The Info.plist additions get merged in by the same script.
+Everything is idempotent so re-running `tauri ios init` doesn't
+lose our work.
 
 ## Layout
 
@@ -65,8 +69,7 @@ doesn't lose our work.
     ├── tauri.conf.json
     ├── src/{main.rs, lib.rs}
     └── ios-overrides/
-        ├── NoChromeSceneConfigurator.swift   # +load, scene tweaks
-        ├── AppDelegate+NoChrome.swift        # buildMenu(with:) swizzle
+        ├── NoChromeSceneConfigurator.swift   # scene-lifecycle tweaks
         └── Info.additions.plist              # keys to merge
 ```
 
@@ -113,29 +116,25 @@ npm run ios:overrides
 
 ### `NoChromeSceneConfigurator.swift`
 
-Registers in `+load` for the earliest possible hook. On every
-`UIWindowScene` it sees:
+Exposes a single `install()` class method, called from the patched
+`AppDelegate.swift`. On every `UIWindowScene` it sees (via
+`willConnect` / `didActivate` notifications):
 
 - requests a single full geometry via
   `UIWindowScene.GeometryPreferences.iOS()` so the system knows the
   window is unresizable;
 - pokes (under `responds(to:)`) `isUserResizable`,
   `prefersStandardWindowControlsVisible`, `prefersFullScreenContent`,
-  `isMenuBarHidden`, `prefersMenuBarHidden`, `menuBarVisibility` —
-  these are speculative names matching Apple's WWDC25 nomenclature;
-  whichever one(s) the iPadOS 26 SDK actually exposes will take
-  effect, the rest no-op;
-- forces a `UIMenuSystem.main.setNeedsRebuild()` so the swizzle below
-  gets a chance to empty the bar.
+  `isMenuBarHidden`, `prefersMenuBarHidden` — these are speculative
+  names matching Apple's WWDC25 nomenclature; whichever one(s) the
+  iPadOS 26 SDK actually exposes will take effect, the rest no-op;
+- bumps `setNeedsStatusBarAppearanceUpdate` /
+  `setNeedsUpdateOfHomeIndicatorAutoHidden` for edge-to-edge.
 
-### `AppDelegate+NoChrome.swift`
-
-Swizzles `UIResponder.buildMenu(with:)` at runtime so every standard
-menu identifier (`.application`, `.file`, `.edit`, … `.root`) is
-removed before the system displays it. The previous extension-based
-attempt couldn't actually override the method — Swift extensions
-can't override methods on non-final ObjC classes — so we go through
-`class_addMethod` / `method_exchangeImplementations`.
+Logging is sprinkled throughout (`NSLog("[NoChrome] …")`) so a quick
+`xcrun simctl spawn booted log stream --predicate 'eventMessage contains "[NoChrome]"'`
+(or the iPad's Console app) will tell us which speculative keys
+actually exist on the iPadOS 26 SDK.
 
 ## How we'll iterate
 
