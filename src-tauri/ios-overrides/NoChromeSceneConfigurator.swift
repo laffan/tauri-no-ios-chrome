@@ -23,6 +23,7 @@ public final class NoChromeSceneConfigurator: NSObject {
 
     private static var didInstall = false
     private static var lastDiagnosticText: String = ""
+    private static var pollTimer: Timer?
     private static let overlayTag = 0xC0DEBABE
 
     /// Idempotent. Safe to call multiple times.
@@ -54,6 +55,37 @@ public final class NoChromeSceneConfigurator: NSObject {
             guard let scene = note.object as? UIWindowScene else { return }
             applyNoChrome(to: scene, phase: "didActivate")
         }
+
+        // Polling safety net: re-apply chrome-hide and try to show the
+        // overlay every 0.5s. Survives the scene-observer-doesn't-fire
+        // case AND the rootVC-is-nil-when-observer-fires case. Stops
+        // itself once the overlay is up.
+        DispatchQueue.main.async {
+            pollTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { timer in
+                for s in UIApplication.shared.connectedScenes {
+                    guard let scene = s as? UIWindowScene else { continue }
+                    applyNoChrome(to: scene, phase: "poll")
+                }
+                if overlayIsUp() {
+                    NSLog("[NoChrome] overlay is up; stopping poll timer")
+                    timer.invalidate()
+                    pollTimer = nil
+                }
+            }
+            // Fire once immediately so we don't wait 0.5s for the first
+            // run.
+            pollTimer?.fire()
+        }
+    }
+
+    private static func overlayIsUp() -> Bool {
+        for s in UIApplication.shared.connectedScenes {
+            guard let ws = s as? UIWindowScene else { continue }
+            for w in ws.windows where w.viewWithTag(overlayTag) != nil {
+                return true
+            }
+        }
+        return false
     }
 
     private static func applyNoChrome(to scene: UIWindowScene, phase: String) {
@@ -255,23 +287,31 @@ public final class NoChromeSceneConfigurator: NSObject {
     // MARK: - On-screen overlay
 
     private static func showDiagnosticsOverlay(in scene: UIWindowScene, phase: String) {
-        guard let window = scene.windows.first(where: { $0.isKeyWindow }) ?? scene.windows.first,
-              let rootVC = window.rootViewController else {
-            NSLog("[NoChrome] no rootVC, skipping overlay")
+        let candidates = scene.windows
+        guard let window = candidates.first(where: { $0.isKeyWindow }) ?? candidates.first else {
+            NSLog("[NoChrome] no window in scene, skipping overlay (phase=\(phase))")
+            return
+        }
+        let rootVC = window.rootViewController
+        let report = collectDiagnostics(scene: scene, rootVC: rootVC, phase: phase)
+        lastDiagnosticText = report
+        NSLog("[NoChrome] diagnostic (\(phase))\n\(report)")
+
+        // Idempotent: if the overlay is already up, just refresh its text.
+        if let existing = window.viewWithTag(overlayTag),
+           let textView = existing.subviews.compactMap({ $0 as? UITextView }).first {
+            textView.text = report
             return
         }
 
-        let report = collectDiagnostics(scene: scene, rootVC: rootVC, phase: phase)
-        lastDiagnosticText = report
-        NSLog("[NoChrome] diagnostic\n\(report)")
-
-        rootVC.view.viewWithTag(overlayTag)?.removeFromSuperview()
-
         let container = UIView()
         container.tag = overlayTag
-        container.frame = rootVC.view.bounds
+        container.frame = window.bounds
         container.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.backgroundColor = .black
+        // Conspicuous red border so it's obvious the overlay is present.
+        container.layer.borderColor = UIColor.red.cgColor
+        container.layer.borderWidth = 4
 
         let copyButton = UIButton(type: .system)
         copyButton.setTitle("Tap to copy & hide", for: .normal)
@@ -286,7 +326,7 @@ public final class NoChromeSceneConfigurator: NSObject {
             for s in UIApplication.shared.connectedScenes {
                 guard let ws = s as? UIWindowScene else { continue }
                 for w in ws.windows {
-                    w.rootViewController?.view.viewWithTag(overlayTag)?.removeFromSuperview()
+                    w.viewWithTag(overlayTag)?.removeFromSuperview()
                 }
             }
         }), for: .touchUpInside)
@@ -309,6 +349,9 @@ public final class NoChromeSceneConfigurator: NSObject {
 
         container.addSubview(textView)
         container.addSubview(copyButton)
-        rootVC.view.addSubview(container)
+        // Add to the UIWindow itself so we sit above whatever VC tree
+        // (and WebView) Tauri builds.
+        window.addSubview(container)
+        window.bringSubviewToFront(container)
     }
 }
