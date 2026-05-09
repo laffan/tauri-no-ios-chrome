@@ -85,10 +85,16 @@ public final class NoChromeSceneConfigurator: NSObject {
             }
         }
 
-        // 3. Status bar / home indicator: keep edge-to-edge.
+        // 3. Status bar: aggressively hide. Tauri's WebView host is a
+        //    UIViewController subclass; if it overrides
+        //    prefersStatusBarHidden, our base-class swizzle does
+        //    nothing. So we also force the override on the actual
+        //    rootVC class we encounter here.
         for window in scene.windows {
-            window.rootViewController?.setNeedsStatusBarAppearanceUpdate()
-            window.rootViewController?.setNeedsUpdateOfHomeIndicatorAutoHidden()
+            guard let rootVC = window.rootViewController else { continue }
+            forceStatusBarHidden(on: type(of: rootVC))
+            rootVC.setNeedsStatusBarAppearanceUpdate()
+            rootVC.setNeedsUpdateOfHomeIndicatorAutoHidden()
         }
     }
 
@@ -101,22 +107,30 @@ public final class NoChromeSceneConfigurator: NSObject {
         return true
     }
 
-    /// Replaces the implementation of UIViewController.prefersStatusBarHidden
-    /// with a block that always returns true. Subclasses that DON'T override
-    /// the property fall through to UIViewController's IMP (now ours).
-    /// Subclasses that DO override it are unaffected, but that's fine —
-    /// nobody in the Tauri WebView path should be doing that, and if any
-    /// of them did, they could only have made the bar hidden, not visible.
+    /// Replaces the implementation of `UIViewController.prefersStatusBarHidden`
+    /// with a block that always returns true. Covers UIViewController
+    /// instances and subclasses that DON'T override the property — they
+    /// inherit our IMP via normal Obj-C dispatch.
     private static func installStatusBarHider() {
-        let cls: AnyClass = UIViewController.self
+        forceStatusBarHidden(on: UIViewController.self)
+    }
+
+    /// Forces `prefersStatusBarHidden` to return true on the given class.
+    /// Uses `class_replaceMethod`, which adds the method if absent (so a
+    /// subclass that didn't override the getter now does, hiding the
+    /// inherited IMP) or replaces the IMP if present (defeating an
+    /// existing subclass override). Either way the result is the same:
+    /// instances of `cls` answer `true`. Idempotent.
+    private static func forceStatusBarHidden(on cls: AnyClass) {
         let sel = #selector(getter: UIViewController.prefersStatusBarHidden)
-        guard let method = class_getInstanceMethod(cls, sel) else {
-            NSLog("[NoChrome] could not find UIViewController.prefersStatusBarHidden")
+        guard let inherited = class_getInstanceMethod(cls, sel) else {
+            NSLog("[NoChrome] no prefersStatusBarHidden on \(cls)")
             return
         }
+        let typeEncoding = method_getTypeEncoding(inherited)
         let block: @convention(block) (UIViewController) -> Bool = { _ in true }
         let imp = imp_implementationWithBlock(block)
-        method_setImplementation(method, imp)
-        NSLog("[NoChrome] swizzled UIViewController.prefersStatusBarHidden -> true")
+        class_replaceMethod(cls, sel, imp, typeEncoding)
+        NSLog("[NoChrome] forced prefersStatusBarHidden=true on \(cls)")
     }
 }

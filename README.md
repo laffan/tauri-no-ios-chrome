@@ -12,15 +12,17 @@ on top of us — bar, divider, corner glyph, status indicator — is showing.
 
 > **Status:** builds and runs on a real iPad (iPad Pro 5G 12.9",
 > iPadOS 26). Status bar (time/battery/wifi) was still showing after
-> the first pass, so we now also swizzle
-> `UIViewController.prefersStatusBarHidden -> true` and flip
-> `UIViewControllerBasedStatusBarAppearance` to YES. Whether the new
-> iPadOS 26 menu bar / resize corner are gone is still pending real-
-> device confirmation; the speculative KVC pokes will print
-> `[NoChrome] set <key> = <value>` for each property that actually
-> exists on the SDK's `UIWindowScene`, viewable via the iPad's
-> Console app or `log stream --predicate 'eventMessage contains "[NoChrome]"'`
-> from a Mac. The README is the running log; expect it to change.
+> the first swizzle pass, almost certainly because Tauri's WebView
+> host is a `UIViewController` *subclass* with its own override of
+> `prefersStatusBarHidden`, which Obj-C dispatch picks ahead of our
+> base-class swizzle. The current pass also calls
+> `class_replaceMethod` on whatever class the rootVC actually turns
+> out to be, so the override is forced regardless. The Console
+> `[NoChrome] forced prefersStatusBarHidden=true on <ClassName>` line
+> will tell us its name. The menu bar's auto-hide-with-pop-down on
+> hover is the iPadOS 26 default, not something we need to engineer.
+> Resize corner: still no documented opt-out; speculative KVC pokes
+> are best-effort. The README is the running log; expect it to change.
 >
 > **Icons:** `src-tauri/icons/` contains solid-black PNG placeholders
 > (Tauri's `generate_context!` macro fails the build if any referenced
@@ -30,11 +32,30 @@ on top of us — bar, divider, corner glyph, status indicator — is showing.
 
 ## Strategy, in one paragraph
 
-iPadOS 26 introduced two new always-on-top UI elements (a system menu
-bar, a resize corner) as part of its new windowing model. The OS
-suppresses both for apps that opt out of the new model. Apple has not
-shipped one canonical "hide everything" switch, so we stack the levers
-that exist:
+The premise we started from — "Drafts has hidden the new menu bar" —
+turned out to be wrong: the iPadOS 26 menu bar is **already hidden by
+default** in Windowed Apps mode and only appears when the pointer
+reaches the top edge or the user swipes down. Drafts isn't fighting
+the system; it's the steady-state behavior. So our actual job is
+narrower than originally scoped:
+
+- Hide the **classic status bar** (time/battery/wifi). Drafts hides
+  it; the iPadOS 26 default leaves it visible.
+- Hide the **bottom-right resize corner**. Apple has not shipped a
+  public opt-out for this; what we ship is best-effort.
+- Don't fight the menu bar — let the system auto-hide it.
+
+Apple's WWDC25 session 282 ("Make your UIKit app more flexible") and
+[Developer Forums thread 787227](https://developer.apple.com/forums/thread/787227)
+both confirm: the official guidance for iPadOS 26 is to *adapt* to the
+new chrome via `preferredWindowingControlStyle(for:)` and
+`UIView.layoutGuide(for: .margins(cornerAdaptation:))`, not to
+suppress it. There's no documented hide flag. `UIDesignRequiresCompatibility = YES`
+sounds like the silver bullet but is reportedly unreliable
+([dotnet/maui#32814](https://github.com/dotnet/maui/issues/32814)).
+`UIRequiresFullScreen` is deprecated in iPadOS 26 and slated to be
+ignored. We keep both as no-cost hedges and rely on the items below
+for actual effect:
 
 1. **`Info.plist` keys** that opt the app out of the new windowing UI
    entirely. The most likely silver bullet is
