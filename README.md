@@ -12,17 +12,19 @@ on top of us — bar, divider, corner glyph, status indicator — is showing.
 
 > **Status:** builds and runs on a real iPad (iPad Pro 5G 12.9",
 > iPadOS 26). Status bar (time/battery/wifi) was still showing after
-> the first swizzle pass, almost certainly because Tauri's WebView
-> host is a `UIViewController` *subclass* with its own override of
-> `prefersStatusBarHidden`, which Obj-C dispatch picks ahead of our
-> base-class swizzle. The current pass also calls
-> `class_replaceMethod` on whatever class the rootVC actually turns
-> out to be, so the override is forced regardless. The Console
-> `[NoChrome] forced prefersStatusBarHidden=true on <ClassName>` line
-> will tell us its name. The menu bar's auto-hide-with-pop-down on
-> hover is the iPadOS 26 default, not something we need to engineer.
-> Resize corner: still no documented opt-out; speculative KVC pokes
-> are best-effort. The README is the running log; expect it to change.
+> two prior swizzle passes — the most likely remaining cause is that
+> Tauri's WebView host returns a child via `childForStatusBarHidden`
+> and the system queries the child instead of the VC we swizzled.
+> The current build now (a) walks the entire VC tree at scene
+> activation and overrides both `prefersStatusBarHidden` and
+> `childForStatusBarHidden` on every distinct class encountered, and
+> (b) shows an **on-screen diagnostic overlay** (since `tauri ios dev`
+> isn't available, Console.app isn't either). The overlay reports the
+> rootVC's class, the VC tree, the post-merge Info.plist values, the
+> scene's `statusBarManager.isStatusBarHidden`, and which speculative
+> `UIWindowScene` properties actually exist on the SDK. Tap "Tap to
+> copy & hide" to clipboard-copy the report and dismiss the overlay.
+> The README is the running log; expect it to change.
 >
 > **Icons:** `src-tauri/icons/` contains solid-black PNG placeholders
 > (Tauri's `generate_context!` macro fails the build if any referenced
